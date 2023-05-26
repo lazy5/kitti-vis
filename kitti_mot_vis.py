@@ -9,28 +9,6 @@ import cv2
 from utils.kitti_mot import kitti_mot, show_lidar_with_depth, show_lidar_on_image, \
                          show_image_with_boxes, show_lidar_topview_with_boxes
 
-# dataset = kitti_mot('data/kitti-mot-sample', '0006')
-
-# data_idx = 0
-# objects = dataset.get_label_objects(data_idx)
-# pc_velo = dataset.get_lidar(data_idx)
-# calib = dataset.get_calibration()
-# img = dataset.get_image(data_idx)
-# img_height, img_width, _ = img.shape
-
-# img_lidar = show_lidar_on_image(pc_velo[:, :3], img, calib, img_width, img_height)
-# img_lidar = cv2.cvtColor(img_lidar, cv2.COLOR_BGR2RGB)
-
-# img_bbox2d, img_bbox3d = show_image_with_boxes(img, objects, calib)
-# img_bbox2d = cv2.cvtColor(img_bbox2d, cv2.COLOR_BGR2RGB)
-# img_bbox3d = cv2.cvtColor(img_bbox3d, cv2.COLOR_BGR2RGB)
-
-
-# fig_bbox3d = plt.figure(figsize=(14, 7))
-# ax_bbox3d = fig_bbox3d.subplots()
-# ax_bbox3d.imshow(img_bbox3d)
-# plt.show()
-
 
 def main(cfg):
     """ 可视化示例 """
