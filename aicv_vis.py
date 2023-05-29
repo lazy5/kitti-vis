@@ -133,7 +133,7 @@ def trans_lidar_to_cam(lidar_points, calib_cam2lidar, calib_cam_K):
 
     # 构建平移向量
     translation_vector = np.array([Tx, Ty, Tz]) # cam point to lidar
-    translation_vector_inv = - np.array([Tx, Ty, Tz]) # lidar point to cam
+    translation_vector_inv = - translation_vector # lidar point to cam
 
     # 将LiDAR坐标系转化为相机坐标系下的点
     cam_points = np.dot(rotation_matrix_inv, lidar_points.T) + translation_vector_inv[:, np.newaxis]
@@ -143,7 +143,6 @@ def trans_lidar_to_cam(lidar_points, calib_cam2lidar, calib_cam_K):
     pixel_points = trans_cam_to_pixel(cam_points, calib_cam_K)
 
     return pixel_points
-
 
 
 def compute_box_3d(obj):
@@ -167,15 +166,13 @@ def compute_box_3d(obj):
     # print('cornsers_3d: ', corners_3d)
 
     cam2lidar = [0.489518130031956, -0.02945436564130331, -0.4929393635788265, -0.500677789650434, 0.49376240367541463, -0.49772616641790407, 0.5077293599255113]
-    K = np.array([3157.740152389458, 0, 1877.8239571322447, 0, 3157.74015238945, 1032.5844237793194, 0, 0, 1]).reshape((3, 3))
+    K = [3157.740152389458, 0, 1877.8239571322447, 0, 3157.74015238945, 1032.5844237793194, 0, 0, 1]
 
     corners_2d = trans_lidar_to_cam(corners_3d.T, cam2lidar, K)
     
     return corners_2d
 
 
-# def show_image_with_boxes(img, objects, calib, show3d=True, depth=None, save_dir='output'):
-# def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir='output'):
 def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir=None):
     """ 对图像中的物体进行2d和3d框的可视化
         cv2: 默认色彩通道顺序为BGR
@@ -215,11 +212,75 @@ def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir=None):
     return img2
 
 
+def get_lidar_in_image_fov(
+    pc_velo, xmin, ymin, xmax, ymax, return_more=False, clip_distance=2.0
+):
+    """ Filter lidar points, keep those in image FOV 
+    根据图像的fov过滤lidar点云
+    return:
+        imgfov_pc_velo: 过滤后的映射到图像上的点云2D坐标
+    """
+    cam2lidar = [0.489518130031956, -0.02945436564130331, -0.4929393635788265, -0.500677789650434, 0.49376240367541463, -0.49772616641790407, 0.5077293599255113]
+    K = np.array([3157.740152389458, 0, 1877.8239571322447, 0, 3157.74015238945, 1032.5844237793194, 0, 0, 1]).reshape((3, 3))
+    pts_2d = trans_lidar_to_cam(pc_velo, cam2lidar, K)
+    # pts_2d = calib.project_velo_to_image(pc_velo)
+    fov_inds = (
+        (pts_2d[:, 0] < xmax)
+        & (pts_2d[:, 0] >= xmin)
+        & (pts_2d[:, 1] < ymax)
+        & (pts_2d[:, 1] >= ymin)
+    )
+    fov_inds = fov_inds & (pc_velo[:, 0] > clip_distance)
+    imgfov_pc_velo = pc_velo[fov_inds, :]
+    if return_more:
+        return imgfov_pc_velo, pts_2d, fov_inds
+    else:
+        return imgfov_pc_velo
+
+
+# def show_lidar_on_image(pc_velo, img, calib, img_width, img_height, save_dir='output'):
+def show_lidar_on_image(pc_velo, img, img_width, img_height, save_dir='output'):
+    """ Project LiDAR points to image """
+    img =  np.copy(img)
+    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(
+        pc_velo, 0, 0, img_width, img_height, True
+    )
+    print(imgfov_pc_velo.shape)
+    imgfov_pts_2d = pts_2d[fov_inds, :]
+    print(imgfov_pts_2d.shape)
+    imgfov_pc_rect = imgfov_pc_velo
+    # imgfov_pc_rect = calib.project_velo_to_rect(imgfov_pc_velo)
+
+    import matplotlib.pyplot as plt
+
+    cmap = plt.cm.get_cmap("hsv", 256)
+    cmap = np.array([cmap(i) for i in range(256)])[:, :3] * 255
+
+    for i in range(imgfov_pts_2d.shape[0]):
+        depth = imgfov_pc_rect[i, 0]
+        # depth = imgfov_pc_rect[i, 2]
+        color = cmap[int(640.0 / depth), :]
+        cv2.circle(
+            img,
+            (int(np.round(imgfov_pts_2d[i, 0])), int(np.round(imgfov_pts_2d[i, 1]))),
+            2,
+            color=tuple(color),
+            thickness=-1,
+        )
+    if save_dir is not None: # 将可视化结果保存为图像
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        cv2.imwrite(os.path.join(save_dir, 'aicv-projection.png'), img)
+    else: # 将可视化结果直接可视化
+        cv2.imshow("projection", img)
+    return img
+
+
 if __name__ == '__main__':
     # 1. 可视化lidar
     pcd_file = 'data/aicv-sample-ori/velodyne/at128_fusion.pcd'
     pc_data = load_pcd(pcd_file)
-    # print(pc_data.shape)
+    print(pc_data.shape)
     # img_bev = save_bev_image_by_point_cloud(pc_data, 'tmp.png')
 
     # 2. label读取
@@ -235,6 +296,11 @@ if __name__ == '__main__':
     # 4. 图像可视化
     img = cv2.imread('data/aicv-sample-ori/image_02/image.jpg')
     show_image_with_boxes(img, anno, save_dir='output')
+
+    # 5. 将点云映射到图像上
+    img = cv2.imread('data/aicv-sample-ori/image_02/image.jpg')
+    img_height, img_width = img.shape[:2]
+    show_lidar_on_image(pc_data[:, :3], img, img_width, img_height, save_dir='output')
 
 
 
