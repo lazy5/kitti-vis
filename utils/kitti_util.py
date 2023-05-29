@@ -818,3 +818,220 @@ def linear_regression(train_x, train_y, test_x):
     test_y = hypothesis_func(w_fit, test_x)
     test_y0 = hypothesis_func(w_fit, train_x)
     return test_y, test_y0
+
+
+############ fangchenyu: add else vis component#########################
+def rotate_points_along_z(points, angle):
+    """
+    Args:
+        points: (B, N, 3 + C)
+        angle: (B), angle along z-axis, angle increases x ==> y
+    Returns:
+
+    """
+    cosa = np.cos(angle)
+    sina = np.sin(angle)
+    zeros = np.zeros(points.shape[0])
+    ones = np.ones(points.shape[0])
+    rot_matrix = np.stack((
+        cosa, sina, zeros,
+        -sina, cosa, zeros,
+        zeros, zeros, ones
+    ), axis=1).reshape(-1, 3, 3)
+    points_rot = np.matmul(points[:, :, 0:3], rot_matrix)
+    points_rot = np.concatenate((points_rot, points[:, :, 3:]), axis=-1)
+    return points_rot
+
+
+def boxes_to_corners_3d(boxes3d):
+    """
+        7 -------- 4
+       /|         /|
+      6 -------- 5 .
+      | |        | |
+      . 3 -------- 0
+      |/         |/
+      2 -------- 1
+    Args:
+        boxes3d:  (N, 7) [x, y, z, dx, dy, dz, heading], (x, y, z) is the box center
+
+    Returns:
+    """
+    template = np.array((
+        [1, 1, -1], [1, -1, -1], [-1, -1, -1], [-1, 1, -1],
+        [1, 1, 1], [1, -1, 1], [-1, -1, 1], [-1, 1, 1],
+    ), dtype=float) / 2
+
+    corners3d = boxes3d[:, None, 3:6].repeat(8, axis=1) * template[None, :, :]
+    corners3d = rotate_points_along_z(corners3d.reshape(-1, 8, 3), boxes3d[:, 6]).reshape(-1, 8, 3)
+    corners3d += boxes3d[:, None, 0:3]
+
+    return corners3d
+
+
+def show_lidar_topview_with_boxes(pc_velo, objects, objects_pred=None, vis_output_file=None):
+    """ top_view image"""
+    # print('pc_velo shape: ',pc_velo.shape)
+    top_view = lidar_to_top(pc_velo)
+    top_image = draw_top_image(top_view)
+    # print("top_image:", top_image.shape)
+    # gt
+    gt = boxes_to_corners_3d(objects['bbox3d'])
+    lines = objects.get('trackID', None)
+    top_image = draw_box3d_on_top(
+        # top_image, gt, scores=None, thickness=1, is_gt=True
+        top_image, gt, text_lables=lines, scores=None, thickness=1, is_gt=True
+    )
+    # pred
+    if objects_pred is not None:
+        gt = boxes_to_corners_3d(objects_pred['bbox3d'])
+        top_image = draw_box3d_on_top(
+            top_image, gt, scores=None, thickness=1, is_gt=False
+            # top_image, gt, text_lables=lines, scores=None, thickness=1, is_gt=False
+        )
+
+    if vis_output_file is not None:
+        cv2.imwrite(str(vis_output_file), top_image)
+    # cv2.imshow("top_image", top_image)
+    return top_image
+
+
+def save_bev_image_by_point_cloud(pc_data, out_path):
+    ''' 从lidar点云数据生成bev图片
+    pc_data: np.array, shape is [N, 4], 点云数据，N表示点云数量，4表示描述点的4个维度(x, y, z, intensity)
+    out_path: string, 输出图片路径
+    '''
+    top_view = lidar_to_top(pc_data)
+    top_image = draw_top_image(top_view)    
+    cv2.imwrite(out_path, top_image)
+    return top_image
+
+
+def show_lidar_topview_with_semantic(pc_data, label, color_map, out_path, num_classes=8):
+    ''' 从lidar点云数据和语义标签生成bev图片
+    pc_data: np.array, shape is [N, 4], 点云数据，N表示点云数量，4表示描述点的4个维度(x, y, z, intensity)
+    label: np.array, shape is [N], 每个点的类别
+    out_path: string, 输出图片路径
+    num_classes: 点云分割的类别数量
+    '''
+    pc_data = np.concatenate((pc_data, np.expand_dims(label, axis=1)), axis=1)
+    top_view = label_lidar_to_top(pc_data, num_classes)
+    top_image = draw_sementic_aicv_top_image(top_view, color_map)  
+    cv2.imwrite(out_path, top_image)
+    return top_image
+
+
+
+# ####################### fangchenyu: use mayavi to visualize pointcloud #########################
+# import mayavi.mlab as mlab # 利用mayavi库实现点云数据集可视化
+
+# def draw_lidar(pc, color=None, bbox3d=None, vis_output_file=None, show_lidar_coord=True, show_fov=False, show_top_view=False):
+#     ''' Draw lidar points
+#     Args:
+#         pc: numpy array (n,3) of XYZ or (n,4) of XYZI
+#         color: numpy array (n) of intensity or label or whatever, the size must same to pc
+#         bbox3d: numpy array (n,7) of (x, y, z, l, w, h, heading)
+#         vis_output_file: str, 保存可视化图片的地址
+#         show_lidar_coord: bool, 是否显示lidar坐标系(True or False)
+#         show_fov: bool, 是否显示视野范围(True or False)
+#         show_top_view: bool, 是否为bev视角，True为bev视图，False为跟车视图
+#     Returns:
+#         fig: created or used fig
+#     '''
+#     if show_top_view:
+#         fig = mlab.figure(figure=None, bgcolor=(0, 0, 0), fgcolor=None, engine=None, size=(600, 1000)) # 建立窗口大小为size的fig，其背景色为黑色
+#     else:
+#         fig = mlab.figure(figure=None, bgcolor=(0, 0, 0), fgcolor=None, engine=None, size=(1600, 1000)) # 建立窗口大小为size的fig，其背景色为黑色
+#     if color is None: 
+#         color = pc[:, 0] # 根据x轴的坐标对点云颜色做区分
+#     else: # 点云中的label为最小值的点与背景色一致，为了做区分，将所有点的label值+1，然后将任意一个点的label值设为0不显示该点
+#         color += 1
+#         color[0] = 0
+#     # draw points 其中colormap指定颜色映射方式，可选方法有{'spectral', 'gnuplot'...}等多种方法，其中’spectral‘方式的映射得到的图像比较好看
+#     mlab.points3d(pc[:, 0], pc[:, 1], pc[:, 2], color, color=None, mode='point', colormap='spectral', scale_factor=1,
+#                   figure=fig)
+
+#     if show_lidar_coord: # 显示lidar坐标系
+#         # draw origin 画lidar坐标系原点，也就是激光雷达的位置，mode指定形状为球形’sphere‘，颜色为白色
+#         mlab.points3d(0, 0, 0, color=(1, 1, 1), mode='sphere', scale_factor=0.2)
+#         # draw axis 画出lidar坐标系，画出3条由原点出发的3d直线
+#         axes = np.array([
+#             [2., 0., 0., 0.],
+#             [0., 2., 0., 0.],
+#             [0., 0., 2., 0.],
+#         ], dtype=np.float64)
+#         mlab.plot3d([0, axes[0, 0]], [0, axes[0, 1]], [0, axes[0, 2]], color=(1, 0, 0), tube_radius=None, figure=fig)
+#         mlab.plot3d([0, axes[1, 0]], [0, axes[1, 1]], [0, axes[1, 2]], color=(0, 1, 0), tube_radius=None, figure=fig)
+#         mlab.plot3d([0, axes[2, 0]], [0, axes[2, 1]], [0, axes[2, 2]], color=(0, 0, 1), tube_radius=None, figure=fig)
+
+#     if show_fov: # 显示视野范围
+#         # draw fov (todo: update to real sensor spec.) 画出相机视野范围前方90度
+#         fov = np.array([  # 45 degree
+#             [20., 20., 0., 0.],
+#             [20., -20., 0., 0.],
+#         ], dtype=np.float64)
+#         mlab.plot3d([0, fov[0, 0]], [0, fov[0, 1]], [0, fov[0, 2]], color=(1, 1, 1), tube_radius=None, line_width=1, figure=fig)
+#         mlab.plot3d([0, fov[1, 0]], [0, fov[1, 1]], [0, fov[1, 2]], color=(1, 1, 1), tube_radius=None, line_width=1, figure=fig)
+
+#     if bbox3d is not None: # 画出3d框
+#         corners3d = boxes_to_corners_3d(bbox3d)
+#         fig = draw_corners3d(corners3d, fig)
+
+#     # 配置观测相机的位置与角度
+#     # azimuth: 观测相机位置在xy平面投影与lidar坐标系的x轴的夹角，取值范围(0, 360)，180度为跟车视角
+#     # elevation: 观测相机位置向量与lidar坐标系z轴的夹角，取值范围为(0,180)，0度为俯视视角。该值接近0或180时，azimuth=0的配置特化传统的xy平面坐标系（L型），azimuth=90为7型
+#     # focalpoint: 相机焦点配置，不懂，可不配，使用默认值，焦点将位于场景中所有物体的中心
+#     # distance: 观测相机到焦点（我的理解是lidar坐标系原点）的距离
+#     if show_top_view:
+#         mlab.view(azimuth=90, elevation=0, distance=90.0, figure=fig)
+#     else:
+#         mlab.view(azimuth=180, elevation=70, distance=62.0, figure=fig)
+#     # mlab.view(azimuth=180, elevation=70, focalpoint=[12.0909996, -1.04700089, -2.03249991], distance=62.0, figure=fig)
+#     if vis_output_file is not None:
+#         mlab.savefig(vis_output_file, figure=fig)
+#     mlab.show() # 交互展示可视化点云数据
+#     return fig
+
+
+# def draw_corners3d(corners3d, fig, color=(1, 1, 1), line_width=2, cls=None, tag='', max_num=500, tube_radius=None):
+#     """ 根据3d框的角点坐标，在mayavi的画布中画出3d框
+#     :param corners3d: (N, 8, 3)
+#     :param fig:
+#     :param color:
+#     :param line_width:
+#     :param cls:
+#     :param tag:
+#     :param max_num:
+#     :return:
+#     """
+#     num = min(max_num, len(corners3d))
+#     for n in range(num):
+#         b = corners3d[n]  # (8, 3)
+
+#         if cls is not None:
+#             if isinstance(cls, np.ndarray):
+#                 mlab.text3d(b[6, 0], b[6, 1], b[6, 2], '%.2f' % cls[n], scale=(0.3, 0.3, 0.3), color=color, figure=fig)
+#             else:
+#                 mlab.text3d(b[6, 0], b[6, 1], b[6, 2], '%s' % cls[n], scale=(0.3, 0.3, 0.3), color=color, figure=fig)
+
+#         for k in range(0, 4):
+#             i, j = k, (k + 1) % 4
+#             mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=tube_radius,
+#                         line_width=line_width, figure=fig)
+
+#             i, j = k + 4, (k + 1) % 4 + 4
+#             mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=tube_radius,
+#                         line_width=line_width, figure=fig)
+
+#             i, j = k, k + 4
+#             mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=tube_radius,
+#                         line_width=line_width, figure=fig)
+
+#         i, j = 0, 5
+#         mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=tube_radius,
+#                     line_width=line_width, figure=fig)
+#         i, j = 1, 4
+#         mlab.plot3d([b[i, 0], b[j, 0]], [b[i, 1], b[j, 1]], [b[i, 2], b[j, 2]], color=color, tube_radius=tube_radius,
+#                     line_width=line_width, figure=fig)
+
+#     return fig

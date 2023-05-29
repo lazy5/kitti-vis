@@ -53,10 +53,6 @@ def main(cfg):
     plt.savefig('output/all.png')
     plt.show()
 
-    
-
-
-
 
 
 if __name__ == '__main__':
