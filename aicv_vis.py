@@ -15,7 +15,8 @@ import pandas as pd
 from scipy.spatial.transform import Rotation
 
 import pypcd
-from utils.kitti_util import lidar_to_top, draw_top_image, show_lidar_topview_with_boxes
+from utils.kitti_util import lidar_to_top, draw_top_image, \
+                                show_lidar_topview_with_boxes, boxes_to_corners_3d
 
 
 
@@ -146,29 +147,15 @@ def trans_lidar_to_cam(lidar_points, calib_cam2lidar, calib_cam_K):
 
 
 def compute_box_3d(obj):
-    # 3d bounding box dimensions
-    l = obj[3]
-    w = obj[4]
-    h = obj[5]
-
-    # 3d bounding box corners
-    x_corners = [l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2]
-    y_corners = [0, 0, 0, 0, -h, -h, -h, -h]
-    z_corners = [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2]
-
-    # rotate and translate 3d bounding box
-    corners_3d = np.vstack([x_corners, y_corners, z_corners])
-    # corners_3d = np.dot(R, np.vstack([x_corners, y_corners, z_corners]))
-    # print corners_3d.shape
-    corners_3d[0, :] = corners_3d[0, :] + obj[0]
-    corners_3d[1, :] = corners_3d[1, :] + obj[1]
-    corners_3d[2, :] = corners_3d[2, :] + obj[2]
-    # print('cornsers_3d: ', corners_3d)
+    # print(obj[np.newaxis, :].shape)
+    corners_3d = boxes_to_corners_3d(obj[np.newaxis, :])[0]
+    # print(corners_3d.shape)
 
     cam2lidar = [0.489518130031956, -0.02945436564130331, -0.4929393635788265, -0.500677789650434, 0.49376240367541463, -0.49772616641790407, 0.5077293599255113]
     K = [3157.740152389458, 0, 1877.8239571322447, 0, 3157.74015238945, 1032.5844237793194, 0, 0, 1]
 
-    corners_2d = trans_lidar_to_cam(corners_3d.T, cam2lidar, K)
+    corners_2d = trans_lidar_to_cam(corners_3d, cam2lidar, K)
+    # corners_2d = trans_lidar_to_cam(corners_3d.T, cam2lidar, K)
     
     return corners_2d
 
@@ -186,18 +173,23 @@ def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir=None):
     gt_names = objects['gt_names']
     objects = objects['gt_boxes']
     for i, obj in enumerate(objects):
-        box3d_pts_2d = compute_box_3d(obj)
-
-        # box3d_pts_2d, _ = utils.compute_box_3d(obj, calib.P)
-        if box3d_pts_2d is None:
-            print("something wrong in the 3D box.")
-            continue
-        if gt_names[i] == "smallMot":
-            img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(0, 255, 0))
-        elif gt_names[i] == "bigMot":
-            img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(255, 255, 0))
-        # elif obj.type == "Cyclist":
-        #     img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(0, 255, 255))
+        # 筛选出在视野中的障碍物
+        center = obj[:3]
+        imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(
+            center[np.newaxis, :], 0, 0, 3840, 2160, True
+        )
+        # print('aaaa:', fov_inds)
+        if fov_inds[0]:
+            box3d_pts_2d = compute_box_3d(obj)
+            if box3d_pts_2d is None:
+                print("something wrong in the 3D box.")
+                continue
+            if gt_names[i] == "smallMot":
+                img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(0, 255, 0))
+            elif gt_names[i] == "bigMot":
+                img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(255, 255, 0))
+            elif gt_names[i] == "Tricyclist":
+                img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(0, 255, 255))
     
     if save_dir is not None: # 将可视化结果保存为图像
         if not os.path.exists(save_dir):
@@ -217,13 +209,13 @@ def get_lidar_in_image_fov(
 ):
     """ Filter lidar points, keep those in image FOV 
     根据图像的fov过滤lidar点云
+    pc_velo: np.array(N, 3)
     return:
         imgfov_pc_velo: 过滤后的映射到图像上的点云2D坐标
     """
     cam2lidar = [0.489518130031956, -0.02945436564130331, -0.4929393635788265, -0.500677789650434, 0.49376240367541463, -0.49772616641790407, 0.5077293599255113]
     K = np.array([3157.740152389458, 0, 1877.8239571322447, 0, 3157.74015238945, 1032.5844237793194, 0, 0, 1]).reshape((3, 3))
     pts_2d = trans_lidar_to_cam(pc_velo, cam2lidar, K)
-    # pts_2d = calib.project_velo_to_image(pc_velo)
     fov_inds = (
         (pts_2d[:, 0] < xmax)
         & (pts_2d[:, 0] >= xmin)
