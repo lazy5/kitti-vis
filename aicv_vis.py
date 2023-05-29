@@ -5,19 +5,12 @@
 Author: fangchenyu
 Date: 2022/12/27
 """
-from __future__ import print_function
-from cgi import print_arguments
-
 import os
 import copy
-import io
 from pathlib import Path
-import math
 import json
 import numpy as np
 import cv2
-# from PIL import Image
-import concurrent.futures as futures
 import pandas as pd
 from scipy.spatial.transform import Rotation
 
