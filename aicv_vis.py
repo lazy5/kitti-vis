@@ -134,10 +134,9 @@ def trans_lidar_to_cam(lidar_points, calib_cam2lidar, calib_cam_K):
 
     # 构建平移向量
     translation_vector = np.array([Tx, Ty, Tz]) # cam point to lidar
-    translation_vector_inv = - translation_vector # lidar point to cam
 
     # 将LiDAR坐标系转化为相机坐标系下的点
-    cam_points = np.dot(rotation_matrix_inv, lidar_points.T) + translation_vector_inv[:, np.newaxis]
+    cam_points = np.dot(rotation_matrix_inv, lidar_points.T - translation_vector[:, np.newaxis])
     cam_points = cam_points.T # (3, N) -> (N, 3)
 
     # 将相机坐标系下的点转化为像素坐标系下的点
@@ -211,7 +210,7 @@ def get_lidar_in_image_fov(
     根据图像的fov过滤lidar点云
     pc_velo: np.array(N, 3)
     return:
-        imgfov_pc_velo: 过滤后的映射到图像上的点云2D坐标
+        imgfov_pc_velo: np.array(N, 2)过滤后的映射到图像上的点云2D坐标
     """
     cam2lidar = [0.489518130031956, -0.02945436564130331, -0.4929393635788265, -0.500677789650434, 0.49376240367541463, -0.49772616641790407, 0.5077293599255113]
     K = np.array([3157.740152389458, 0, 1877.8239571322447, 0, 3157.74015238945, 1032.5844237793194, 0, 0, 1]).reshape((3, 3))
