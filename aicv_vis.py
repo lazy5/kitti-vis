@@ -159,6 +159,37 @@ def compute_box_3d(obj):
     return corners_2d
 
 
+def convert_to_2d_bbox(box_3d):
+    # 提取立体框的每个顶点的坐标
+    x = box_3d[:, :, 0]
+    y = box_3d[:, :, 1]
+
+    # 计算2D边界框的坐标
+    x_min = np.min(x, axis=1)
+    y_min = np.min(y, axis=1)
+    x_max = np.max(x, axis=1)
+    y_max = np.max(y, axis=1)
+
+    # 组合2D边界框的坐标为数组
+    bbox_2d = np.stack((x_min, y_min, x_max, y_max), axis=1)
+
+    return bbox_2d
+
+
+def draw_projected_box2d(image, box_2d, color=(0, 255, 0), thickness=2):
+    """ Draw 2d bounding box in image
+        box_2d: (4) [x_min, y_min, x_max, y_max]
+    """
+    cv2.rectangle(
+        image,
+        (int(box_2d[0]), int(box_2d[1])),
+        (int(box_2d[2]), int(box_2d[3])),
+        color,
+        thickness,
+    )
+    return image
+
+
 def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir=None):
     """ 对图像中的物体进行2d和3d框的可视化
         cv2: 默认色彩通道顺序为BGR
@@ -167,6 +198,7 @@ def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir=None):
     """
     import utils.kitti_util as utils
 
+    img1 = np.copy(img)  # for 3d bbox
     img2 = np.copy(img)  # for 3d bbox
     #TODO: change the color of boxes
     gt_names = objects['gt_names']
@@ -189,14 +221,32 @@ def show_image_with_boxes(img, objects, show3d=True, depth=None, save_dir=None):
                 img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(255, 255, 0))
             elif gt_names[i] == "Tricyclist":
                 img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(0, 255, 255))
+
+            # 画2d框
+            print(box3d_pts_2d[np.newaxis, ...].shape)
+            # return
+            pts_box_2d = convert_to_2d_bbox(box3d_pts_2d[np.newaxis, ...])[0]
+            # print('pts_box_2d', pts_box_2d.shape)
+            print(pts_box_2d)
+            # return
+            if gt_names[i] == "smallMot":
+                img1 = draw_projected_box2d(img1, pts_box_2d, color=(0, 255, 0))
+            elif gt_names[i] == "bigMot":
+                img1 = draw_projected_box2d(img1, pts_box_2d, color=(255, 255, 0))
+            elif gt_names[i] == "Tricyclist":
+                img1 = draw_projected_box2d(img1, pts_box_2d, color=(0, 255, 255))
+
+
     
     if save_dir is not None: # 将可视化结果保存为图像
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
+        cv2.imwrite(os.path.join(save_dir, 'aicv-img-box-2d.png'), img1)
         cv2.imwrite(os.path.join(save_dir, 'aicv-img-label.png'), img2)
     else: # 将可视化结果直接可视化
         show3d = True
         if show3d:
+            cv2.imshow("2dbox", img2)
             cv2.imshow("3dbox", img2)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
